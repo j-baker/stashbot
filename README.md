@@ -30,7 +30,7 @@ NOTE: Please ensure you add a LICENSE block to the top of each newly added file.
 To run jenkins for testing, simply obtain a suitable jenkins.war, then do the
 following to configure it:
 
-1. Run ```java -jar jenkins.war``` (or use the scripts in bin/)
+1. Run `java -jar jenkins.war` (or use the scripts in bin/)
 2. Navigate to http://localhost:8080 to configure
 3. Install the git plugin and post build task (required!)
 4. Ensure you navigate to a repository settings page and click "save", that is what initially creates/updates jobs in jenkins.
@@ -47,6 +47,16 @@ can do something like this to easily build your own copy and use it:
     git clone https://github.com/RisingOak/jenkins-client.git $REPO_PATH
     # make modifications, build jar using maven
     atlas-mvn install:install-file -Dfile=$REPO_PATH/target/jenkins-client-0.1.5-SNAPSHOT.jar -DgroupId=com.offbytwo.jenkins -DartifactId=jenkins-client -Dversion=0.1.5-SNAPSHOT -Dpackaging=jar -DpomFile=$REPO_PATH/pom.xml
+
+## Releasing
+
+The Maven JGitFlow Plugin requires maven 2.2.1+ (and as of this writing, atlas-mvn is 2.1.1).
+
+You can point atlassian's plugin SDK to a different maven for the purpose of releasing by doing this:
+
+    ATLAS_MVN=/usr/share/maven2/bin/mvn
+
+The above location is where maven 2.2.1 is located on debian/ubuntu if you have it installed.  Obviously, you could manually download it and locate it wherever you like.
 
 # TODO
 
