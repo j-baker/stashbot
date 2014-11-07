@@ -6,8 +6,7 @@ set -e
 
 creds=$HOME/.gradle/gradle.properties
 
-version=`git describe --abbrev=12 | sed -e 's/-/./g'`
-# TODO: if contains -gXXXX, publish snapshot?
+version=`git describe --long --abbrev=12 --dirty="-dirty"`
 
 if [ "$version" == "" ]; then
   echo "Error: unable to determine version"

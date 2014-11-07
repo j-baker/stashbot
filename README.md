@@ -114,6 +114,12 @@ Doing these 4 things will ensure you do not introduce unneccessary whitespace ch
 
 NOTE: Please ensure you add a LICENSE block to the top of each newly added file.
 
+## Releasing
+
+This project's version string comes from `git describe --long  --abbrev=12 --dirty='-dirty'`.
+
+To release a new version, simply tag the relevant commit with an annotated tag whose name is the version, i.e. to release version 1.2.0, `git tag -a 1.2.0 -m"Releasing 1.2.0" HEAD`, then make sure you push with --tags to share that tag.
+
 ## Jenkins
 
 To run jenkins for testing, simply obtain a suitable jenkins.war, then do the
