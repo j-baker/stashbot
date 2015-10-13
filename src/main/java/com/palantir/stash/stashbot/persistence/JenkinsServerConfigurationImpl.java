@@ -18,30 +18,30 @@ import com.palantir.stash.stashbot.persistence.JenkinsServerConfiguration.Authen
 
 public class JenkinsServerConfigurationImpl {
 
-	private final JenkinsServerConfiguration jsc;
+    private final JenkinsServerConfiguration jsc;
 
-	public JenkinsServerConfigurationImpl(JenkinsServerConfiguration jsc) {
-		this.jsc = jsc;
-	}
+    public JenkinsServerConfigurationImpl(JenkinsServerConfiguration jsc) {
+        this.jsc = jsc;
+    }
 
-	public AuthenticationMode getAuthenticationMode() {
-		return AuthenticationMode.fromMode(jsc.getAuthenticationModeStr());
-	}
+    public AuthenticationMode getAuthenticationMode() {
+        return AuthenticationMode.fromMode(jsc.getAuthenticationModeStr());
+    }
 
-	public void setAuthenticationMode(AuthenticationMode authMode) {
-		jsc.setAuthenticationModeStr(authMode.getMode());
-	}
+    public void setAuthenticationMode(AuthenticationMode authMode) {
+        jsc.setAuthenticationModeStr(authMode.getMode());
+    }
 
-	public String getUrlForRepo(Repository r) {
-		if (!jsc.getPrefixTemplate().equals("")) {
-			String template = jsc.getPrefixTemplate();
-			template = template.replaceAll("\\$project", r.getProject()
-					.getKey());
-			template = template.replaceAll("\\$repo", r.getSlug());
+    public String getUrlForRepo(Repository r) {
+        if (!jsc.getPrefixTemplate().equals("")) {
+            String template = jsc.getPrefixTemplate();
+            template = template.replaceAll("\\$project", r.getProject()
+                .getKey());
+            template = template.replaceAll("\\$repo", r.getSlug());
 
-			return jsc.getUrl() + template;
-		} else {
-			return jsc.getUrl();
-		}
-	}
+            return jsc.getUrl() + template;
+        } else {
+            return jsc.getUrl();
+        }
+    }
 }

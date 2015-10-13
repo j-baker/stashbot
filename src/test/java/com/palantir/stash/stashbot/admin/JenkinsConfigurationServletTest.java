@@ -177,7 +177,7 @@ public class JenkinsConfigurationServletTest {
         verify(res).setContentType("text/html;charset=UTF-8");
         verify(rr).requireContext("plugin.page.stashbot");
 
-        @SuppressWarnings({"unchecked", "rawtypes"})
+        @SuppressWarnings({ "unchecked", "rawtypes" })
         Class<Map<String, Object>> cls = (Class) Map.class;
         ArgumentCaptor<Map<String, Object>> mapCaptor = ArgumentCaptor.forClass(cls);
 
@@ -218,7 +218,7 @@ public class JenkinsConfigurationServletTest {
         verify(res).setContentType("text/html;charset=UTF-8");
         verify(rr).requireContext("plugin.page.stashbot");
 
-        @SuppressWarnings({"unchecked", "rawtypes"})
+        @SuppressWarnings({ "unchecked", "rawtypes" })
         Class<Map<String, Object>> cls = (Class) Map.class;
         ArgumentCaptor<Map<String, Object>> mapCaptor = ArgumentCaptor.forClass(cls);
 
