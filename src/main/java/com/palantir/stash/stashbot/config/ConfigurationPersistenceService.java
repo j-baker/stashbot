@@ -131,6 +131,10 @@ public interface ConfigurationPersistenceService {
     public abstract void setJobTypeStatusMapping(RepositoryConfiguration rc,
         JobType jt, Boolean isEnabled);
 
+    public abstract String getDefaultPublicSshKey();
+
+    public abstract String getDefaultPrivateSshKey();
+
     public static class EmailSettings {
 
         private final Boolean emailNotificationsEnabled;

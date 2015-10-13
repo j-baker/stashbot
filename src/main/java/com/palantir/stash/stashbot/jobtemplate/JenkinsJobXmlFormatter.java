@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.io.StringWriter;
 import java.sql.SQLException;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.velocity.Template;
 import org.apache.velocity.VelocityContext;
@@ -26,6 +27,7 @@ import com.atlassian.stash.nav.NavBuilder;
 import com.atlassian.stash.repository.Repository;
 import com.atlassian.stash.repository.RepositoryCloneLinksRequest;
 import com.atlassian.stash.repository.RepositoryService;
+import com.atlassian.stash.util.NamedLink;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.palantir.stash.stashbot.config.ConfigurationPersistenceService;
@@ -68,7 +70,7 @@ public class JenkinsJobXmlFormatter {
         final JenkinsServerConfiguration jsc = cpm
             .getJenkinsServerConfiguration(rc.getJenkinsServerName());
         StringBuffer sb = new StringBuffer();
-        sb.append("/usr/bin/curl -s -i ");
+        sb.append("/usr/bin/curl -s -k -i ");
         sb.append(sub.buildReportingUrl(repo, jobTemplate.getJobType(), jsc, status));
         return sb.toString();
     }
@@ -94,9 +96,25 @@ public class JenkinsJobXmlFormatter {
             repositoryUrl = repositoryUrl.replace("://",
                 "://" + jsc.getStashUsername() + ":" + jsc.getStashPassword()
                     + "@");
+            vc.put("authVersion", 1);
             break;
         case CREDENTIAL_MANUALLY_CONFIGURED:
+            vc.put("authVersion", 1);
             vc.put("credentialUUID", jsc.getStashPassword());
+            break;
+        case CREDENTIAL_AUTOMATIC_SSH_KEY:
+            // switch repositoryUrl to the ssh version
+            RepositoryCloneLinksRequest sshrclr =
+                new RepositoryCloneLinksRequest.Builder().repository(repo).protocol("ssh").build();
+            Set<NamedLink> links = rs.getCloneLinks(sshrclr);
+            if (links.size() != 1) {
+                throw new RuntimeException("Unable to get a unique ssh clone URL for repo " + repo.getName());
+            }
+
+            repositoryUrl = links.iterator().next().getHref();
+            vc.put("authVersion", 2);
+            vc.put("credentialUUID", jsc.getCredentialId());
+            vc.put("privKey", cpm.getDefaultPrivateSshKey());
             break;
         }
         vc.put("repositoryUrl", repositoryUrl);

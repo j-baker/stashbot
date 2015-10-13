@@ -14,11 +14,14 @@
 package com.palantir.stash.stashbot.managers;
 
 import java.io.IOException;
+import java.io.StringWriter;
 import java.net.URISyntaxException;
+import java.net.URLEncoder;
 import java.sql.SQLException;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -26,6 +29,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import org.apache.http.client.HttpResponseException;
+import org.apache.velocity.Template;
+import org.apache.velocity.VelocityContext;
+import org.apache.velocity.app.VelocityEngine;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.DisposableBean;
 
@@ -56,6 +62,9 @@ import com.palantir.stash.stashbot.urlbuilder.StashbotUrlBuilder;
 
 public class JenkinsManager implements DisposableBean {
 
+    static final String GROOVY_GET_CREDENTIALS_TEMPLATE_FILE = "get_credential_uuid_for_user.groovy.vm";
+    static final String GROOVY_CREATE_CREDENTIALS_TEMPLATE_FILE = "create_credential_for_user.groovy.vm";
+
     private final ConfigurationPersistenceService cpm;
     private final JobTemplateManager jtm;
     private final JenkinsJobXmlFormatter xmlFormatter;
@@ -68,13 +77,12 @@ public class JenkinsManager implements DisposableBean {
     private final UserService us;
     private final UserManager um;
     private final ExecutorService es;
+    private final VelocityManager vm;
 
     public JenkinsManager(RepositoryService repositoryService,
-        ConfigurationPersistenceService cpm, JobTemplateManager jtm,
-        JenkinsJobXmlFormatter xmlFormatter,
-        JenkinsClientManager jenkisnClientManager, StashbotUrlBuilder sub,
-        PluginLoggerFactory lf, SecurityService ss, UserService us,
-        UserManager um) {
+        ConfigurationPersistenceService cpm, JobTemplateManager jtm, JenkinsJobXmlFormatter xmlFormatter,
+        JenkinsClientManager jenkisnClientManager, StashbotUrlBuilder sub, PluginLoggerFactory lf, SecurityService ss,
+        UserService us, UserManager um, VelocityManager vm) {
         this.repositoryService = repositoryService;
         this.cpm = cpm;
         this.jtm = jtm;
@@ -87,6 +95,70 @@ public class JenkinsManager implements DisposableBean {
         this.us = us;
         this.um = um;
         this.es = Executors.newCachedThreadPool();
+        this.vm = vm;
+    }
+
+    /**
+     * This method queries to see if a credential exists. If it doesn't, it creates it. The ID of the credential is
+     * returned.
+     *
+     * @return the credential id
+     * @param jsc
+     * @param rc
+     */
+    public String ensureCredentialExists(JenkinsServerConfiguration jsc, Repository r) {
+        try {
+            JenkinsServer js = jenkinsClientManager.getJenkinsServer(jsc, r);
+
+            String id;
+            {
+                VelocityContext vc = vm.getVelocityContext();
+                // for getting the existing credential, the only thing we need is $user
+                vc.put("user", jsc.getStashUsername());
+                VelocityEngine ve = vm.getVelocityEngine();
+                StringWriter groovy = new StringWriter();
+                Template template = ve.getTemplate(GROOVY_GET_CREDENTIALS_TEMPLATE_FILE);
+                template.merge(vc, groovy);
+
+                String result = js.runScript(groovy.toString());
+                if (!result.startsWith("Result: ")) {
+                    throw new RuntimeException("Unable to query for credentials: " + result);
+                }
+                id = result.split("Result: ")[1].trim();
+            }
+
+            if (id.equals("not found")) {
+                // we have to create it
+                {
+                    VelocityContext vc = vm.getVelocityContext();
+                    // for creating the credential, the args we need are: user, privKey, and id (where id is a random UUID)
+                    vc.put("user", jsc.getStashUsername());
+                    String uuid = UUID.randomUUID().toString();
+                    vc.put("id", uuid);
+                    // key contains "+" in it, which needs to be encoded when posted to the server.
+                    vc.put("privKey", URLEncoder.encode(cpm.getDefaultPrivateSshKey(), "UTF-8"));
+                    VelocityEngine ve = vm.getVelocityEngine();
+                    StringWriter groovy = new StringWriter();
+                    Template template = ve.getTemplate(GROOVY_CREATE_CREDENTIALS_TEMPLATE_FILE);
+                    template.merge(vc, groovy);
+
+                    String result = js.runScript(groovy.toString());
+                    if (!result.startsWith("Result: ")) {
+                        throw new RuntimeException("Unable to query for credentials: " + result);
+                    }
+                    id = result.split("Result: ")[1].trim();
+                    if (!id.equals(uuid)) {
+                        log.error("Possible problem trying to create credentials (ID should be " + uuid + " but was: "
+                            + result);
+                    }
+                }
+            }
+            return id;
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public void updateRepo(Repository repo) {
@@ -108,9 +180,23 @@ public class JenkinsManager implements DisposableBean {
             final JenkinsServerConfiguration jsc = cpm
                 .getJenkinsServerConfiguration(rc.getJenkinsServerName());
             final JenkinsServer jenkinsServer = jenkinsClientManager
-                .getJenkinsServer(jsc, rc, repo);
+                .getJenkinsServer(jsc, repo);
             final String jobName = jobTemplate.getBuildNameFor(repo, jsc);
 
+            // if the job is using credentials, we have to ensure they are deployed first
+            switch (jsc.getAuthenticationMode()) {
+            case CREDENTIAL_AUTOMATIC_SSH_KEY:
+                String id = ensureCredentialExists(jsc, repo);
+                if (!jsc.getCredentialId().equals(id)) {
+                    jsc.setCredentialId(id);
+                    jsc.save();
+                }
+                break;
+            case CREDENTIAL_MANUALLY_CONFIGURED:
+            case USERNAME_AND_PASSWORD:
+                // do nothing
+                break;
+            }
             // If we try to create a job which already exists, we still get a
             // 200... so we should check first to make
             // sure it doesn't already exist
@@ -124,7 +210,7 @@ public class JenkinsManager implements DisposableBean {
             String xml = xmlFormatter.generateJobXml(jobTemplate, repo);
 
             log.trace("Sending XML to jenkins to create job: " + xml);
-            jenkinsServer.createJob(jobName, xml);
+            jenkinsServer.createJob(jobName, xml, false);
         } catch (IOException e) {
             // TODO: something other than just rethrow?
             throw new RuntimeException(e);
@@ -150,9 +236,23 @@ public class JenkinsManager implements DisposableBean {
             final JenkinsServerConfiguration jsc = cpm
                 .getJenkinsServerConfiguration(rc.getJenkinsServerName());
             final JenkinsServer jenkinsServer = jenkinsClientManager
-                .getJenkinsServer(jsc, rc, repo);
+                .getJenkinsServer(jsc, repo);
             final String jobName = jobTemplate.getBuildNameFor(repo, jsc);
 
+            // if the job is using credentials, we have to ensure they are deployed first
+            switch (jsc.getAuthenticationMode()) {
+            case CREDENTIAL_AUTOMATIC_SSH_KEY:
+                String id = ensureCredentialExists(jsc, repo);
+                if (!jsc.getCredentialId().equals(id)) {
+                    jsc.setCredentialId(id);
+                    jsc.save();
+                }
+                break;
+            case CREDENTIAL_MANUALLY_CONFIGURED:
+            case USERNAME_AND_PASSWORD:
+                // do nothing
+                break;
+            }
             // If we try to create a job which already exists, we still get a
             // 200... so we should check first to make
             // sure it doesn't already exist
@@ -163,7 +263,7 @@ public class JenkinsManager implements DisposableBean {
             if (jobMap.containsKey(jobName)) {
                 if (!rc.getPreserveJenkinsJobConfig()) {
                     log.trace("Sending XML to jenkins to update job: " + xml);
-                    jenkinsServer.updateJob(jobName, xml);
+                    jenkinsServer.updateJob(jobName, xml, false);
                 } else {
                     log.trace("Skipping sending XML to jenkins. Repo Config is set to preserve jenkins job config.");
                 }
@@ -171,7 +271,7 @@ public class JenkinsManager implements DisposableBean {
             }
 
             log.trace("Sending XML to jenkins to create job: " + xml);
-            jenkinsServer.createJob(jobName, xml);
+            jenkinsServer.createJob(jobName, xml, false);
         } catch (IOException e) {
             // TODO: something other than just rethrow?
             throw new RuntimeException(e);
@@ -197,16 +297,16 @@ public class JenkinsManager implements DisposableBean {
                 ss.impersonating(
                     su,
                     "Running as user '" + username
-                        + "' in alternate thread asynchronously").call(
-                    new Operation<Void, Exception>() {
+                    + "' in alternate thread asynchronously").call(
+                        new Operation<Void, Exception>() {
 
-                        @Override
-                        public Void perform() throws Exception {
-                            synchronousTriggerBuild(repo, jobType,
-                                hashToBuild, buildRef);
-                            return null;
-                        }
-                    });
+                            @Override
+                            public Void perform() throws Exception {
+                                synchronousTriggerBuild(repo, jobType,
+                                    hashToBuild, buildRef);
+                                return null;
+                            }
+                        });
                 return null;
             };
         });
@@ -227,15 +327,15 @@ public class JenkinsManager implements DisposableBean {
                 ss.impersonating(
                     su,
                     "Running as user '" + username
-                        + "' in alternate thread asynchronously").call(
-                    new Operation<Void, Exception>() {
+                    + "' in alternate thread asynchronously").call(
+                        new Operation<Void, Exception>() {
 
-                        @Override
-                        public Void perform() throws Exception {
-                            synchronousTriggerBuild(repo, jobType, pr);
-                            return null;
-                        }
-                    });
+                            @Override
+                            public Void perform() throws Exception {
+                                synchronousTriggerBuild(repo, jobType, pr);
+                                return null;
+                            }
+                        });
                 return null;
             };
         });
@@ -260,7 +360,7 @@ public class JenkinsManager implements DisposableBean {
                 + " pw: " + password.replaceAll(".", "*") + ")");
 
             final JenkinsServer js = jenkinsClientManager.getJenkinsServer(jsc,
-                rc, repo);
+                repo);
             Map<String, Job> jobMap = js.getJobs();
             String key = jt.getBuildNameFor(repo, jsc);
 
@@ -275,7 +375,7 @@ public class JenkinsManager implements DisposableBean {
                 builder.put("buildRef", buildRef);
             }
 
-            jobMap.get(key).build(builder.build());
+            jobMap.get(key).build(builder.build(), false);
 
         } catch (SQLException e) {
             throw new RuntimeException(e);
@@ -322,7 +422,7 @@ public class JenkinsManager implements DisposableBean {
                 + " pw: " + password.replaceAll(".", "*") + ")");
 
             final JenkinsServer js = jenkinsClientManager.getJenkinsServer(jsc,
-                rc, repo);
+                repo);
             Map<String, Job> jobMap = js.getJobs();
             String key = jt.getBuildNameFor(repo, jsc);
 
@@ -347,7 +447,7 @@ public class JenkinsManager implements DisposableBean {
                     .getLatestChangeset().toString());
             }
 
-            jobMap.get(key).build(builder.build());
+            jobMap.get(key).build(builder.build(), false);
         } catch (SQLException e) {
             throw new RuntimeException(e);
         } catch (URISyntaxException e) {
@@ -406,7 +506,7 @@ public class JenkinsManager implements DisposableBean {
 
             // make sure jobs exist
             List<JobTemplate> templates = jtm.getJenkinsJobsForRepository(rc);
-            JenkinsServer js = jcm.getJenkinsServer(jsc, rc, this.r);
+            JenkinsServer js = jcm.getJenkinsServer(jsc, this.r);
             Map<String, Job> jobs = js.getJobs();
 
             for (JobTemplate template : templates) {
@@ -487,7 +587,7 @@ public class JenkinsManager implements DisposableBean {
 
             // make sure jobs are up to date
             List<JobTemplate> templates = jtm.getJenkinsJobsForRepository(rc);
-            JenkinsServer js = jcm.getJenkinsServer(jsc, rc, this.r);
+            JenkinsServer js = jcm.getJenkinsServer(jsc, this.r);
             Map<String, Job> jobs = js.getJobs();
             for (JobTemplate jobTemplate : templates) {
                 if (!jobs.containsKey(jobTemplate.getBuildNameFor(r, jsc))) {
@@ -547,5 +647,4 @@ public class JenkinsManager implements DisposableBean {
             Thread.sleep(50);
         }
     }
-
 }

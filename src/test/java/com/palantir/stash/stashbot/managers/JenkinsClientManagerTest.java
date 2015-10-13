@@ -57,7 +57,7 @@ public class JenkinsClientManagerTest {
 
     @Test
     public void testJCM() throws URISyntaxException {
-        JenkinsServer js = jcm.getJenkinsServer(jsc, rc, null);
+        JenkinsServer js = jcm.getJenkinsServer(jsc, null);
         Assert.notNull(js);
     }
 }
