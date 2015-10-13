@@ -75,7 +75,7 @@ public class JenkinsJobXmlFormatter {
         return sb.toString();
     }
 
-    public String generateJobXml(JobTemplate jobTemplate, Repository repo)
+    public String generateJobXml(JobTemplate jobTemplate, Repository repo, String id)
         throws SQLException {
 
         final VelocityContext vc = velocityManager.getVelocityContext();
@@ -113,7 +113,11 @@ public class JenkinsJobXmlFormatter {
 
             repositoryUrl = links.iterator().next().getHref();
             vc.put("authVersion", 2);
-            vc.put("credentialUUID", jsc.getCredentialId());
+            if (id == null || id.equals("")) {
+                vc.put("credentialUUID", jsc.getCredentialId());
+            } else {
+                vc.put("credentialUUID", id);
+            }
             vc.put("privKey", cpm.getDefaultPrivateSshKey());
             break;
         }
@@ -243,7 +247,7 @@ public class JenkinsJobXmlFormatter {
 
     /**
      * XML specific parameter types
-     * 
+     *
      * @author cmyers
      */
     public static enum JenkinsBuildParamType {
@@ -254,9 +258,9 @@ public class JenkinsJobXmlFormatter {
     /**
      * Appends the shell magics to the build command to make it succeed/fail
      * properly.
-     * 
+     *
      * TODO: move this into the template?
-     * 
+     *
      * @param command
      * @return
      */

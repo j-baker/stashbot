@@ -184,13 +184,10 @@ public class JenkinsManager implements DisposableBean {
             final String jobName = jobTemplate.getBuildNameFor(repo, jsc);
 
             // if the job is using credentials, we have to ensure they are deployed first
+            String id = null;
             switch (jsc.getAuthenticationMode()) {
             case CREDENTIAL_AUTOMATIC_SSH_KEY:
-                String id = ensureCredentialExists(jsc, repo);
-                if (!jsc.getCredentialId().equals(id)) {
-                    jsc.setCredentialId(id);
-                    jsc.save();
-                }
+                id = ensureCredentialExists(jsc, repo);
                 break;
             case CREDENTIAL_MANUALLY_CONFIGURED:
             case USERNAME_AND_PASSWORD:
@@ -207,7 +204,7 @@ public class JenkinsManager implements DisposableBean {
                     + " already exists");
             }
 
-            String xml = xmlFormatter.generateJobXml(jobTemplate, repo);
+            String xml = xmlFormatter.generateJobXml(jobTemplate, repo, id);
 
             log.trace("Sending XML to jenkins to create job: " + xml);
             jenkinsServer.createJob(jobName, xml, false);
@@ -240,13 +237,10 @@ public class JenkinsManager implements DisposableBean {
             final String jobName = jobTemplate.getBuildNameFor(repo, jsc);
 
             // if the job is using credentials, we have to ensure they are deployed first
+            String id = null;
             switch (jsc.getAuthenticationMode()) {
             case CREDENTIAL_AUTOMATIC_SSH_KEY:
-                String id = ensureCredentialExists(jsc, repo);
-                if (!jsc.getCredentialId().equals(id)) {
-                    jsc.setCredentialId(id);
-                    jsc.save();
-                }
+                id = ensureCredentialExists(jsc, repo);
                 break;
             case CREDENTIAL_MANUALLY_CONFIGURED:
             case USERNAME_AND_PASSWORD:
@@ -258,7 +252,7 @@ public class JenkinsManager implements DisposableBean {
             // sure it doesn't already exist
             Map<String, Job> jobMap = jenkinsServer.getJobs();
 
-            String xml = xmlFormatter.generateJobXml(jobTemplate, repo);
+            String xml = xmlFormatter.generateJobXml(jobTemplate, repo, id);
 
             if (jobMap.containsKey(jobName)) {
                 if (!rc.getPreserveJenkinsJobConfig()) {
